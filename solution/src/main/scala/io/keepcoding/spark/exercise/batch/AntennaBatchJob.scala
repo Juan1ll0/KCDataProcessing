@@ -51,7 +51,7 @@ object AntennaBatchJob extends BatchJob {
   override def computeTotalBytesByAntenna(dataFrame: DataFrame): DataFrame = {
     dataFrame
       .select($"timestamp", $"bytes", $"antenna_id")
-      .groupBy($"antenna_id", window($"timestamp", "1 minute"))
+      .groupBy($"antenna_id", window($"timestamp", "1 hour"))
       .agg(
         sum($"bytes").as("bytes_by_antenna")
       )
@@ -66,7 +66,7 @@ object AntennaBatchJob extends BatchJob {
   override def computeTotalBytesByUser(dataFrame: DataFrame): DataFrame = {
     dataFrame
       .select($"timestamp", $"bytes", $"email")
-      .groupBy($"id", window($"timestamp", "1 minute"))
+      .groupBy($"email", window($"timestamp", "1 hour"))
       .agg(
         sum($"bytes").as("bytes_by_user")
       )
@@ -81,23 +81,23 @@ object AntennaBatchJob extends BatchJob {
 
   override def computeTotalBytesByApp(dataFrame: DataFrame): DataFrame = {
     dataFrame
-      .select($"timestamp", $"bytes", $"email")
-      .groupBy($"id", window($"timestamp", "1 minute"))
+      .select($"timestamp", $"bytes", $"app")
+      .groupBy($"app", window($"timestamp", "1 hour"))
       .agg(
-        sum($"bytes").as("bytes_by_user")
+        sum($"bytes").as("bytes_by_app")
       )
       .select(
         $"window.start".as("timestamp"),
-        $"email".as("id"),
-        $"bytes_by_user".as("value"),
-        lit("user_total_bytes") as ("type")
+        $"app".as("id"),
+        $"bytes_by_app".as("value"),
+        lit("app_total_bytes") as ("type")
       )
   }
 
   override def computeUsersOverQuota(dataFrame: DataFrame): DataFrame = {
     dataFrame
-      .select($"timestamp", $"bytes", $"email")
-      .groupBy($"id", window($"timestamp", "1 minute"))
+      .select($"timestamp", $"bytes", $"id", $"email", $"quota")
+      .groupBy($"id", $"email", $"quota", window($"timestamp", "1 hour"))
       .agg(
         sum($"bytes").as("bytes_by_user")
       )
@@ -151,21 +151,21 @@ object AntennaBatchJob extends BatchJob {
     val jdbcUser = "postgres"
     val jdbcPassword = "postgres"
 
-    val offsetDateTime = OffsetDateTime.parse("2022-10-20T23:00:00Z")
-    val parquetDF = readFromStorage("/tmp/antenna_parquet/", offsetDateTime)
-    val metadataDF = readUserMetadata(jdbcUri, "metadata", jdbcUser, jdbcPassword)
+    val offsetDateTime = OffsetDateTime.parse("2022-10-23T10:00:00Z")
+    val parquetDF = readFromStorage("/tmp/proyecto/antenna_parquet", offsetDateTime)
+    val metadataDF = readUserMetadata(jdbcUri, "user_metadata", jdbcUser, jdbcPassword)
     val enrichDF = enrichAntennaWithMetadata(parquetDF, metadataDF).cache()
 
     val aggByAntenna = computeTotalBytesByAntenna(enrichDF)
     val aggByUser = computeTotalBytesByUser(enrichDF)
     val aggByApp = computeTotalBytesByApp(enrichDF)
     val aggOverQuota = computeUsersOverQuota(enrichDF)
-//
+    //
     writeToJdbc(aggByAntenna, jdbcUri, "bytes_hourly", jdbcUser, jdbcPassword)
     writeToJdbc(aggByUser, jdbcUri, "bytes_hourly", jdbcUser, jdbcPassword)
     writeToJdbc(aggByApp, jdbcUri, "bytes_hourly", jdbcUser, jdbcPassword)
     writeToJdbc(aggOverQuota, jdbcUri, "user_quota_limit", jdbcUser, jdbcPassword)
-    writeToStorage(parquetDF, "/tmp/antenna_parquet/")
+    writeToStorage(parquetDF, "/tmp/proyecto/antenna_parquet/")
 
     spark.close()
   }

@@ -24,6 +24,7 @@ object AntennaStreamingJob extends StreamingJob {
       .format("kafka")
       .option("kafka.bootstrap.servers", kafkaServer)
       .option("subscribe", topic)
+      .option("failOnDataLoss", false)
       .load()
   }
 
@@ -65,10 +66,10 @@ object AntennaStreamingJob extends StreamingJob {
   override def computeTotalBytesByAntenna(dataFrame: DataFrame): DataFrame = {
     dataFrame
       .select($"timestamp", $"bytes", $"antenna_id")
-      .withWatermark("timestamp", "15 seconds")
-      .groupBy($"antenna_id", window($"timestamp", "30 seconds"))
+      .withWatermark("timestamp", "1 minute")
+      .groupBy($"antenna_id", window($"timestamp", "5 minutes"))
       .agg(
-            sum($"bytes").as("bytes_by_antenna")
+        sum($"bytes").as("bytes_by_antenna")
       )
       .select(
         $"window.start".as("timestamp"),
@@ -81,10 +82,10 @@ object AntennaStreamingJob extends StreamingJob {
   override def computeTotalBytesByUser(dataFrame: DataFrame): DataFrame = {
     dataFrame
       .select($"timestamp", $"bytes", $"id")
-      .withWatermark("timestamp", "15 seconds")
-      .groupBy($"id", window($"timestamp", "30 seconds"))
+      .withWatermark("timestamp", "1 minute")
+      .groupBy($"id", window($"timestamp", "5 minutes"))
       .agg(
-          sum($"bytes").as("bytes_by_user")
+        sum($"bytes").as("bytes_by_user")
       )
       .select(
         $"window.start".as("timestamp"),
@@ -97,8 +98,8 @@ object AntennaStreamingJob extends StreamingJob {
   override def computeTotalBytesByApp(dataFrame: DataFrame): DataFrame = {
     dataFrame
       .select($"timestamp", $"bytes", $"app")
-      .withWatermark("timestamp", "15 seconds")
-      .groupBy($"app", window($"timestamp", "30 seconds"))
+      .withWatermark("timestamp", "1 minute")
+      .groupBy($"app", window($"timestamp", "5 minutes"))
       .agg(
         sum($"bytes").as("bytes_by_app")
       )
@@ -180,15 +181,8 @@ object AntennaStreamingJob extends StreamingJob {
     val jdbcFutureUser = writeToJdbc(bytesByUser, s"jdbc:postgresql://$ipPostgres:5432/postgres", "bytes", jdbcUser, jdbcPassword)
     val jdbcFutureApp = writeToJdbc(bytesByApp, s"jdbc:postgresql://$ipPostgres:5432/postgres", "bytes", jdbcUser, jdbcPassword)
 
-//    bytesByAntenna
-//      .writeStream
-//      .format("console")
-//      .start()
-//      .awaitTermination()
-     Await.result(
-       Future.sequence(Seq(storageFuture, jdbcFutureAntenna, jdbcFutureUser, jdbcFutureApp)), Duration.Inf
-     )
+    Await.result(Future.sequence(Seq(storageFuture, jdbcFutureAntenna, jdbcFutureUser, jdbcFutureApp)), Duration.Inf)
 
-     spark.close()
+    spark.close()
   }
 }
